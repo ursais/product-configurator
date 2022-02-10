@@ -8,6 +8,15 @@ class ProductConfigSession(models.Model):
     _inherit = "product.config.session"
 
     def create_get_bom(self, variant, product_tmpl_id=None, values=None):
+
+        # default_type is set as 'product' when the user navigates
+        # through menu item "Products". This conflicts
+        # with the type for mrp.bom when mrpBom.onchange() is executed.
+        ctx = self.env.context.copy()
+        if ctx.get("default_type"):
+            ctx.pop("default_type")
+        self.env.context = ctx
+
         if values is None:
             values = {}
         if product_tmpl_id is None or variant.product_tmpl_id != product_tmpl_id:
@@ -45,7 +54,9 @@ class ProductConfigSession(models.Model):
             for product in attr_products:
                 bom_line_vals = {"product_id": product.id}
                 specs = self.get_onchange_specifications(model="mrp.bom.line")
-                updates = mrpBomLine.onchange(bom_line_vals, ["product_id"], specs)
+                updates = mrpBomLine.onchange(
+                    bom_line_vals, ["product_id", "product_qty"], specs
+                )
                 values = updates.get("value", {})
                 values = self.get_vals_to_write(values=values, model="mrp.bom.line")
                 values.update(bom_line_vals)
@@ -58,30 +69,33 @@ class ProductConfigSession(models.Model):
                     for config in parent_bom_line.config_set_id.configuration_ids:
                         # Add bom lines if config values are part of attr_values
                         if set(config.value_ids.ids).issubset(set(attr_values.ids)):
-                            for (
-                                config_bom_line
-                            ) in parent_bom_line.config_set_id.bom_line_ids:
-                                if config_bom_line.bom_id.id == parent_bom.id:
-                                    parent_bom_line_vals = {
-                                        "product_id": config_bom_line.product_id.id
-                                    }
-                                    specs = self.get_onchange_specifications(
-                                        model="mrp.bom.line"
-                                    )
-                                    updates = mrpBomLine.onchange(
-                                        parent_bom_line_vals, ["product_id"], specs
-                                    )
-                                    values = updates.get("value", {})
-                                    values = self.get_vals_to_write(
-                                        values=values, model="mrp.bom.line"
-                                    )
-                                    values.update(parent_bom_line_vals)
-                                    bom_lines.append((0, 0, values))
+                            if parent_bom_line.bom_id.id == parent_bom.id:
+                                parent_bom_line_vals = {
+                                    "product_id": parent_bom_line.product_id.id,
+                                    "product_qty": parent_bom_line.product_qty,
+                                }
+                                specs = self.get_onchange_specifications(
+                                    model="mrp.bom.line"
+                                )
+                                updates = mrpBomLine.onchange(
+                                    parent_bom_line_vals,
+                                    ["product_id", "product_qty"],
+                                    specs,
+                                )
+                                values = updates.get("value", {})
+                                values = self.get_vals_to_write(
+                                    values=values, model="mrp.bom.line"
+                                )
+                                values.update(parent_bom_line_vals)
+                                bom_lines.append((0, 0, values))
                 else:
-                    parent_bom_line_vals = {"product_id": parent_bom_line.product_id.id}
+                    parent_bom_line_vals = {
+                        "product_id": parent_bom_line.product_id.id,
+                        "product_qty": parent_bom_line.product_qty,
+                    }
                     specs = self.get_onchange_specifications(model="mrp.bom.line")
                     updates = mrpBomLine.onchange(
-                        parent_bom_line_vals, ["product_id"], specs
+                        parent_bom_line_vals, ["product_id", "product_qty"], specs
                     )
                     values2 = updates.get("value", {})
                     values2 = self.get_vals_to_write(
@@ -105,6 +119,9 @@ class ProductConfigSession(models.Model):
             values = self.get_vals_to_write(values=values, model="mrp.bom")
             values.update(bom_values)
             mrp_bom_id = mrpBom.create(values)
+            if mrp_bom_id and parent_bom:
+                for operation_line in parent_bom.operation_ids:
+                    operation_line.copy(default={"bom_id": mrp_bom_id.id})
             return mrp_bom_id
         return False
 
