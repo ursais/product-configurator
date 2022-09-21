@@ -385,7 +385,7 @@ class ProductTemplate(models.Model):
         domain = args or []
         domain += ["|", ("name", operator, name), ("default_code", operator, name)]
         return self.search(domain, limit=limit).name_get()
-        
+
 
 class ProductProduct(models.Model):
     _inherit = "product.product"
