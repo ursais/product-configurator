@@ -1161,10 +1161,9 @@ class ProductConfigSession(models.Model):
                     if not set(domain[2]) & set(value_ids):
                         stack.append(False)
                         continue
-                else:
-                    if set(domain[2]) & set(value_ids):
-                        stack.append(False)
-                        continue
+                elif set(domain[2]) & set(value_ids):
+                    stack.append(False)
+                    continue
                 stack.append(True)
             else:
                 # evaluate operator and previous 2 operands

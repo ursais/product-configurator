@@ -221,10 +221,10 @@ class ProductConfigurator(models.TransientModel):
                 if any(type(el) != int for el in v):
                     v = v[0][2]
                 value_ids = list(set(v) & set(available_val_ids))
-                dynamic_fields.update({k: value_ids})
+                dynamic_fields[k] = value_ids
                 vals[k] = [[6, 0, value_ids]]
             elif v not in available_val_ids:
-                dynamic_fields.update({k: None})
+                dynamic_fields[k] = None
                 vals[k] = None
             else:
                 vals[k] = v
