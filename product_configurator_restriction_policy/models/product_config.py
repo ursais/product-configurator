@@ -20,11 +20,10 @@ class ProductConfigSession(models.Model):
         check_val_ids = (
             self.value_ids.ids if check_val_ids is None else check_val_ids.copy()
         )
-        product_tmpl = (
-            self.env["product.template"].browse(product_tmpl_id)
-            if not self.product_tmpl_id
-            else self.product_tmpl_id
+        product_tmpl = self.product_tmpl_id or self.env["product.template"].browse(
+            product_tmpl_id
         )
+
         product_tmpl.ensure_one()
         value_ids = self.value_ids.ids if value_ids is None else value_ids.copy()
         if custom_vals is None:
