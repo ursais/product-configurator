@@ -87,6 +87,7 @@ class ProductConfiguratorMrp(models.TransientModel):
         mrp_order._onchange_move_raw()
         mrp_order._onchange_move_finished()
         mrp_order._onchange_location()
+        mrp_order.onchange_picking_type()
         mrp_action = self.get_mrp_production_action()
         mrp_action.update({"res_id": mrp_order.id})
         return mrp_action
