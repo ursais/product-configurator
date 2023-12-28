@@ -68,7 +68,6 @@ class ProductConfigSession(models.Model):
                     [
                         ("bom_id", "=", master_bom.id),
                         ("product_id", "=", component_config_session.product_id.id),
-                        ("config_set_id", "=", bom_line_config_set.id),
                     ],
                     limit=1,
                 )
@@ -79,6 +78,12 @@ class ProductConfigSession(models.Model):
                             "product_id": component_variant.id,
                             "config_set_id": bom_line_config_set.id,
                             "product_qty": config_component_line.product_qty,
+                        }
+                    )
+                else:
+                    existing_bom_line.update(
+                        {
+                            "config_set_id": bom_line_config_set.id,
                         }
                     )
         return super().create_get_bom(variant, product_tmpl_id=None, values=None)
