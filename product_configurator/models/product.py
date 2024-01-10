@@ -12,6 +12,10 @@ _logger = logging.getLogger(__name__)
 
 class ProductTemplate(models.Model):
     _inherit = "product.template"
+    _rec_names_search = [
+        "name",
+        "default_code",
+    ]
 
     @api.depends("product_variant_ids.product_tmpl_id")
     def _compute_product_variant_count(self):
@@ -370,12 +374,6 @@ class ProductTemplate(models.Model):
             )
         if error_message:
             raise ValidationError(error_message)
-
-    @api.model
-    def name_search(self, name="", args=None, operator="ilike", limit=100):
-        domain = args or []
-        domain += ["|", ("name", operator, name), ("default_code", operator, name)]
-        return self.search(domain, limit=limit).name_get()
 
 
 class ProductProduct(models.Model):
