@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import _, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import ValidationError, UserError
 from odoo.tools.safe_eval import safe_eval
 
 
@@ -64,6 +64,8 @@ class ProductConfiguratorMrp(models.TransientModel):
         bom = self.config_session_id.create_get_bom(
             variant=product,
         )
+        if not bom:
+            raise UserError("Please confirm a parent BOM exists for this product and try again")
         line_vals = {
             "bom_id": bom.id,
             "product_uom_id": product.uom_id.id,
