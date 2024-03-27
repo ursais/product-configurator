@@ -58,7 +58,7 @@ class ProductConfigSession(models.Model):
                     if val is None:
                         specs[key] = {}
                 updates = mrpBomLine.onchange(
-                    bom_line_vals, ["product_id", "product_qty"], specs
+                    bom_line_vals, ["product_id", "product_qty"], {}
                 )
                 values = updates.get("value", {})
                 values = self.get_vals_to_write(values=values, model="mrp.bom.line")
@@ -86,7 +86,7 @@ class ProductConfigSession(models.Model):
                                 updates = mrpBomLine.onchange(
                                     parent_bom_line_vals,
                                     ["product_id", "product_qty"],
-                                    specs,
+                                    {},
                                 )
                                 values = updates.get("value", {})
                                 values = self.get_vals_to_write(
