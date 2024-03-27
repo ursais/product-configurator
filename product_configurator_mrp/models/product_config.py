@@ -49,7 +49,6 @@ class ProductConfigSession(models.Model):
         )
         bom_lines = []
         if not parent_bom:
-            print("No BOM")
             # If not Bom, then Cycle through attributes to add their
             # related products to the bom lines.
             for product in attr_products:
@@ -58,21 +57,18 @@ class ProductConfigSession(models.Model):
                 for key, val in specs.items():
                     if val is None:
                         specs[key] = {}
-                print(specs)
                 updates = mrpBomLine.onchange(
-                    bom_line_vals, ["product_id", "product_qty"], {}
+                    bom_line_vals, ["product_id", "product_qty"], specs
                 )
                 values = updates.get("value", {})
                 values = self.get_vals_to_write(values=values, model="mrp.bom.line")
                 values.update(bom_line_vals)
                 bom_lines.append((0, 0, values))
         else:
-            print("Has BOM")
             # If parent BOM is used, then look through Config Sets
             # on parent product's bom to add the products to the bom lines.
             for parent_bom_line in parent_bom.bom_line_ids:
                 if parent_bom_line.config_set_id:
-                    print("CONFIG SET ID %s", parent_bom_line.config_set_id.name)
                     for config in parent_bom_line.config_set_id.configuration_ids:
                         # Add bom lines if config values are part of attr_values
                         if set(config.value_ids.ids).issubset(set(attr_values.ids)):
@@ -87,11 +83,10 @@ class ProductConfigSession(models.Model):
                                 for key, val in specs.items():
                                     if val is None:
                                         specs[key] = {}
-                                print(specs)
                                 updates = mrpBomLine.onchange(
                                     parent_bom_line_vals,
                                     ["product_id", "product_qty"],
-                                    {},
+                                    specs,
                                 )
                                 values = updates.get("value", {})
                                 values = self.get_vals_to_write(

@@ -1534,7 +1534,7 @@ class ProductConfigSession(models.Model):
         specs = model_obj._onchange_spec()
         new_specs = {}
         for key, val in specs.items():
-            new_specs["%s.%s" % (parent, key)] = val
+            new_specs[f"{parent}.{key}"] = val
         return new_specs
 
     @api.model
