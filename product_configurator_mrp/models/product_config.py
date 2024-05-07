@@ -22,7 +22,7 @@ class ProductConfigSession(models.Model):
         if product_tmpl_id is None or variant.product_tmpl_id != product_tmpl_id:
             product_tmpl_id = variant.product_tmpl_id
 
-        mrpBom = self.env["mrp.bom"]
+        mrpBom = self.env["mrp.bom"].sudo().with_company(self.env.user.company_id)
         mrpBomLine = self.env["mrp.bom.line"]
         attr_products = variant.product_template_attribute_value_ids.mapped(
             "product_attribute_value_id.product_id"
@@ -30,7 +30,7 @@ class ProductConfigSession(models.Model):
         attr_values = variant.product_template_attribute_value_ids.mapped(
             "product_attribute_value_id"
         )
-        existing_bom = self.env["mrp.bom"].search(
+        existing_bom = self.env["mrp.bom"].sudo().with_company(self.env.user.company_id).search(
             [
                 ("product_tmpl_id", "=", product_tmpl_id.id),
                 ("product_id", "=", variant.id),
@@ -39,7 +39,7 @@ class ProductConfigSession(models.Model):
         if existing_bom:
             return existing_bom[:1]
 
-        parent_bom = self.env["mrp.bom"].search(
+        parent_bom = self.env["mrp.bom"].sudo().with_company(self.env.user.company_id).search(
             [
                 ("product_tmpl_id", "=", product_tmpl_id.id),
                 ("product_id", "=", False),
@@ -143,5 +143,5 @@ class ProductConfigSession(models.Model):
         variant = super().create_get_variant(
             value_ids=value_ids, custom_vals=custom_vals
         )
-        self.create_get_bom(variant=variant, product_tmpl_id=self.product_tmpl_id)
+        self.sudo().with_company(self.env.user.company_id).create_get_bom(variant=variant, product_tmpl_id=self.product_tmpl_id)
         return variant
