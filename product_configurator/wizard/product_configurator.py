@@ -1,3 +1,5 @@
+import json
+
 from lxml import etree
 
 from odoo import _, api, fields, models, tools
@@ -12,6 +14,16 @@ from odoo.addons.base.models.ir_model import FIELD_TYPES
 #     transfer_modifiers_to_node,
 #     transfer_node_to_modifiers,
 # )
+
+
+class Base(models.AbstractModel):
+    _inherit = "base"
+
+    def onchange(self, values: {}, field_names: [], fields_spec: {}):
+        fields_spec = self.env["product.configurator"]._remove_dynamic_fields(
+            fields_spec
+        )
+        return super().onchange(values, field_names, fields_spec)
 
 
 class FreeSelection(fields.Selection):
@@ -103,7 +115,6 @@ class ProductConfigurator(models.TransientModel):
             return steps
 
         open_lines = wiz.config_session_id.get_open_step_lines()
-
         if open_lines:
             open_steps = open_lines.mapped(lambda x: (str(x.id), x.config_step_id.name))
             steps = open_steps if wiz.product_id else steps + open_steps
@@ -150,7 +161,6 @@ class ProductConfigurator(models.TransientModel):
 
         :returns: a dictionary of domains returned by onchance method
         """
-
         field_prefix = self._prefixes.get("field_prefix")
         if not product_tmpl_id:
             product_tmpl_id = self.product_tmpl_id
@@ -192,11 +202,12 @@ class ProductConfigurator(models.TransientModel):
 
         # Remove None from cfg_val_ids if exist
         cfg_val_ids = [val for val in cfg_val_ids if val]
-
+        tobe_remove_attr = self.env.context.get("tobe_remove_attr", [])
         product_img = config_session_id.get_config_image(cfg_val_ids)
-        price = config_session_id.get_cfg_price(cfg_val_ids)
+        price = config_session_id.with_context(
+            tobe_remove_attr=tobe_remove_attr
+        ).get_cfg_price(cfg_val_ids)
         weight = config_session_id.get_cfg_weight(value_ids=cfg_val_ids)
-
         return {
             "product_img": product_img,
             "value_ids": [(6, 0, cfg_val_ids)],
@@ -223,30 +234,119 @@ class ProductConfigurator(models.TransientModel):
         """
         vals = {}
         dynamic_fields = {k: v for k, v in dynamic_fields.items() if v}
+        tobe_remove_attr = []
+        available_val_ids_m2m = []
         for k, v in dynamic_fields.items():
             if not v:
                 continue
             available_val_ids = domains[k][0][2]
-            if isinstance(v, list):
-                if any(not isinstance(el, int) for el in v):
-                    v = v[0][1]
-                    value_ids = available_val_ids.append(v)
-                value_ids = available_val_ids
-                dynamic_fields.update({k: value_ids})
-                vals[k] = [[6, 0, value_ids]]
+            value_ids = self.config_session_id.value_ids
+            attribute_line_ids = self.product_tmpl_id.attribute_line_ids.filtered(
+                lambda line: line.multi
+                and line.attribute_id.id in value_ids.mapped("attribute_id").ids
+            )
+            multi_value_ids = self.config_session_id.value_ids.filtered(
+                lambda value: value.attribute_id.id
+                in attribute_line_ids.mapped("attribute_id").ids
+            )
+            available_val_ids_m2m = multi_value_ids.ids
+            tobe_remove_attr_m2m = []
+            if isinstance(v, list) or self.env.context.get("is_m2m"):
+                if isinstance(v, list):
+                    for sub_value in v:
+                        if sub_value[0] == 3:
+                            tobe_remove_attr_m2m.append(sub_value[1])
+                            available_val_ids_m2m.remove(sub_value[1])
+                        if sub_value[0] == 4:
+                            available_val_ids_m2m.append(sub_value[1])
+                    dynamic_fields.update({k: available_val_ids_m2m})
+                    vals[k] = [[6, 0, available_val_ids_m2m]]
             elif v not in available_val_ids:
-                dynamic_fields.update({k: None})
-                vals[k] = None
+                dynamic_fields.update({k: []})
+                vals[k] = []
+
             else:
                 vals[k] = v
+        if (
+            (
+                self.env.context.get("is_action_previous")
+                or self.env.context.get("is_preset")
+                or self.env.context.get("is_m2m")
+            )
+            and config_session_id
+            and config_session_id.value_ids
+        ):
+            session_attrb_values = config_session_id.value_ids
+            tmpl_config_lines = (
+                config_session_id.product_tmpl_id.config_line_ids.mapped(
+                    "attribute_line_id.attribute_id"
+                )
+            )
+            domain_line_attrbs = (
+                config_session_id.product_tmpl_id.config_line_ids.mapped(
+                    "domain_id.domain_line_ids.attribute_id"
+                )
+            )
+            dynamic_fields2 = {}
+            restricted_attrs = list(set(tmpl_config_lines.ids + domain_line_attrbs.ids))
+            field_prefix = self._prefixes.get("field_prefix")
+            if (
+                self.env.context.get("is_action_previous")
+                or self.env.context.get("is_preset")
+                or self._context.get("is_m2m", False)
+            ):
+                for attrb_value in session_attrb_values:
+                    dyn_key = field_prefix + str(attrb_value.attribute_id.id)
+                    if not self._context.get("is_m2m", False):
+                        if (
+                            dynamic_fields.get(dyn_key)
+                            and dynamic_fields.get(dyn_key)
+                            not in session_attrb_values.ids
+                        ):
+                            tobe_remove_attr.append(attrb_value.id)
+                            if attrb_value.attribute_id.id in restricted_attrs:
+                                local_attrb_value = attrb_value
+                                for i in range(len(restricted_attrs)):
+                                    valve_ids = product_tmpl_id.config_line_ids.filtered(
+                                        lambda line: int(local_attrb_value.id)
+                                        in line.domain_id.domain_line_ids.value_ids.ids
+                                    ).mapped("value_ids")
+                                    local_attrb_value = session_attrb_values.filtered(
+                                        lambda lk: lk.id in valve_ids.ids
+                                    )
+                                    if local_attrb_value:
+                                        tobe_remove_attr.append(local_attrb_value.id)
+                                        dynamic_fields2.update(
+                                            {
+                                                field_prefix
+                                                + str(
+                                                    local_attrb_value.attribute_id.id
+                                                ): local_attrb_value.id
+                                            }
+                                        )
+                    elif (
+                        self._context.get("is_m2m", False) and dyn_key in dynamic_fields
+                    ):
+                        tobe_remove_attr_m2m = set(tobe_remove_attr_m2m) - set(
+                            available_val_ids_m2m
+                        )
+                        tobe_remove_attr.extend(list(tobe_remove_attr_m2m))
+            origin_updated_fields = set(dynamic_fields)
+            to_updated_fields = set(dynamic_fields2)
+            updated_fields = to_updated_fields - origin_updated_fields
+            for fi in updated_fields:
+                dynamic_fields.update({fi: None})
+                vals.update({fi: None})
         final_cfg_val_ids = list(dynamic_fields.values())
-
-        vals.update(self.get_onchange_vals(final_cfg_val_ids, config_session_id))
+        vals.update(
+            self.with_context(tobe_remove_attr=tobe_remove_attr).get_onchange_vals(
+                final_cfg_val_ids, config_session_id
+            )
+        )
         # To solve the Multi selection problem removing extra []
         if "value_ids" in vals:
             val_ids = vals["value_ids"][0]
             vals["value_ids"] = [[val_ids[0], val_ids[1], tools.flatten(val_ids[2])]]
-
         return vals
 
     def apply_onchange_values(self, values, field_name, field_onchange):
@@ -271,26 +371,26 @@ class ProductConfigurator(models.TransientModel):
             state = self.state
 
         cfg_vals = self.env["product.attribute.value"]
-        if values.get("value_ids", []):
-            cfg_vals = self.env["product.attribute.value"].browse(
-                values.get("value_ids", [])[0][2]
-            )
+        config_line_ids = product_tmpl_id.config_line_ids
+        # TODO: VP Need to Check
+        # if values.get("value_ids", []):
+        #     cfg_vals = self.env["product.attribute.value"].browse(
+        #         values.get("value_ids", [])[0][2]
+        #     )
         if not cfg_vals:
             cfg_vals = self.value_ids
 
-        # field_type = type(field_name)
+        field_type = type(field_name)
         field_prefix = self._prefixes.get("field_prefix")
-        # custom_field_prefix = self._prefixes.get("custom_field_prefix")
-        # TODO: NC: Need to check onchange
-        # if field_type == list or (
-        #     not field_name.startswith(field_prefix)
-        #     and not field_name.startswith(custom_field_prefix)
-        # ):
-        #     values = self._remove_dynamic_fields(values)
-        #     res = super().onchange(
-        #         values, field_name, field_onchange
-        #     )
-        #     return res
+        custom_field_prefix = self._prefixes.get("custom_field_prefix")
+        local_field_name = field_name and field_name[0].startswith(field_prefix)
+        local_custom_field = field_name and field_name[0].startswith(
+            custom_field_prefix
+        )
+        if field_type == list and (not local_field_name and not local_custom_field):
+            values = self._remove_dynamic_fields(values)
+            res = super().onchange(values, field_name, field_onchange)
+            return res
 
         view_val_ids = set()
         view_attribute_ids = set()
@@ -304,7 +404,6 @@ class ProductConfigurator(models.TransientModel):
             cfg_step = self.env["product.config.step.line"]
 
         dynamic_fields = {k: v for k, v in values.items() if k.startswith(field_prefix)}
-
         # Get the unstored values from the client view
         for k, v in dynamic_fields.items():
             attr_id = int(k.split(field_prefix)[1])
@@ -319,10 +418,37 @@ class ProductConfigurator(models.TransientModel):
                 valve_ids = product_tmpl_id.config_line_ids.filtered(
                     lambda line: int(v) in line.domain_id.domain_line_ids.value_ids.ids
                 ).mapped("value_ids")
-
+                dyn_restricted_attrs_dicts = (
+                    self.dyn_restricted_attrs_dicts
+                    and json.loads(self.dyn_restricted_attrs_dicts)
+                    or {}
+                )
+                field_name = field_prefix + str(valve_ids.mapped("attribute_id").id)
+                if attr_id and valve_ids.filtered(
+                    lambda value: value.attribute_id.id != attr_id
+                ):
+                    if field_name in dyn_restricted_attrs_dicts:
+                        dyn_restricted_attrs_dicts[field_name] = valve_ids.ids
+                    else:
+                        dyn_restricted_attrs_dicts.update({field_name: valve_ids.ids})
+                self.dyn_restricted_attrs_dicts = json.dumps(dyn_restricted_attrs_dicts)
+            is_custom = self.product_tmpl_id.attribute_line_ids.filtered(
+                lambda l: l.attribute_id.id == valve_ids.mapped("attribute_id").id
+                and l.custom
+            )
+            non_custom = self.product_tmpl_id.attribute_line_ids - is_custom
             self.domain_attr_2_ids = [(6, 0, valve_ids.ids)]
+            if valve_ids.mapped("attribute_id").id in is_custom.ids:
+                self.dyn_field_2_value = custom_field_prefix + str(
+                    valve_ids.mapped("attribute_id").id
+                )
+            if valve_ids.mapped("attribute_id").id in non_custom.ids:
+                self.dyn_field_2_value = field_prefix + str(
+                    valve_ids.mapped("attribute_id").id
+                )
 
             line_attributes = cfg_step.attribute_line_ids.mapped("attribute_id")
+
             if not cfg_step or attr_id in line_attributes.ids:
                 view_attribute_ids.add(attr_id)
             else:
@@ -359,7 +485,14 @@ class ProductConfigurator(models.TransientModel):
                 elif values and value[0][2]:
                     self.dyn_field_2_value = key
                     self.domain_attr_2_ids = [(6, 0, value[0][2])]
-
+        if self.dyn_field_value == self.dyn_field_2_value and dynamic_fields.get(
+            self.dyn_field_value
+        ):
+            value_to_remove = dynamic_fields.get(self.dyn_field_value)
+            if value_to_remove in self.domain_attr_ids.ids:
+                self.domain_attr_ids = False
+            if value_to_remove in self.domain_attr_2_ids.ids:
+                self.domain_attr_2_ids = False
         vals = self.get_form_vals(
             dynamic_fields=dynamic_fields,
             domains=domains,
@@ -375,9 +508,7 @@ class ProductConfigurator(models.TransientModel):
         onchange_values = self.apply_onchange_values(
             values=values, field_name=field_name, field_onchange=field_onchange
         )
-
         field_prefix = self._prefixes.get("field_prefix")
-
         vals = onchange_values.get("value", {})
         for key, val in vals.items():
             if isinstance(val, int) and key.startswith(field_prefix):
@@ -424,6 +555,7 @@ class ProductConfigurator(models.TransientModel):
         "attribute_id",
         string="Domain",
     )
+
     dyn_field_value = fields.Char()
 
     domain_attr_2_ids = fields.Many2many(
@@ -434,6 +566,7 @@ class ProductConfigurator(models.TransientModel):
         string="Domain",
     )
     dyn_field_2_value = fields.Char()
+    dyn_restricted_attrs_dicts = fields.Text()
 
     @api.onchange("state")
     def _onchange_state(self):
@@ -451,9 +584,16 @@ class ProductConfigurator(models.TransientModel):
     @api.onchange("product_preset_id")
     def _onchange_product_preset(self):
         """Set value ids as from product preset"""
-        pta_value_ids = self.product_preset_id.product_template_attribute_value_ids
+        preset_id = self.product_preset_id
+        if not preset_id and self.env.context.get("preset_values"):
+            preset_id = self.env.context.get("preset_values").get("product_preset_id")
+            preset_id = self.env["product.product"].browse(preset_id)
+        pta_value_ids = preset_id.product_template_attribute_value_ids
         attr_value_ids = pta_value_ids.mapped("product_attribute_value_id")
-        self.value_ids = attr_value_ids
+        self._origin.value_ids = attr_value_ids
+        self._origin.price = (
+            preset_id and preset_id.lst_price or self.product_tmpl_id.list_price
+        )
 
     @api.model
     def get_field_default_attrs(self):
@@ -770,6 +910,7 @@ class ProductConfigurator(models.TransientModel):
                         "field_name": field_name,
                         "is_m2m": attr_line.multi,
                         "value_ids": attr_line.value_ids.ids,
+                        "active_model": self._name,
                     }
                 ),
                 options=str(
@@ -858,10 +999,7 @@ class ProductConfigurator(models.TransientModel):
                 product_tmpl_id=int(vals.get("product_tmpl_id"))
             )
             vals.update({"user_id": self.env.uid, "config_session_id": session.id})
-            wz_value_ids = vals.get("value_ids", [])
-            if session.value_ids and (
-                (wz_value_ids and not wz_value_ids[0][2]) or not wz_value_ids
-            ):
+            if session.value_ids:
                 vals.update({"value_ids": [(6, 0, session.value_ids.ids)]})
         return super().create(vals_list)
 
@@ -871,7 +1009,6 @@ class ProductConfigurator(models.TransientModel):
 
         field_prefix = self._prefixes.get("field_prefix")
         custom_field_prefix = self._prefixes.get("custom_field_prefix")
-
         attr_vals = [f for f in fields if f.startswith(field_prefix)]
         custom_attr_vals = [f for f in fields if f.startswith(custom_field_prefix)]
 
@@ -963,7 +1100,6 @@ class ProductConfigurator(models.TransientModel):
         wizard_action = self.with_context(
             allow_preset_selection=False
         ).get_wizard_action(wizard=self)
-
         if not self.product_tmpl_id:
             return wizard_action
 
@@ -988,6 +1124,10 @@ class ProductConfigurator(models.TransientModel):
         wizard_action = self.with_context(
             wizard_id=self.id, view_cache=False, allow_preset_selection=False
         ).get_wizard_action(wizard=self)
+        if wizard_action.get("context") and "is_action_previous" in wizard_action.get(
+            "context"
+        ):
+            wizard_action.get("context")["is_action_previous"] = True
 
         cfg_step_lines = self.product_tmpl_id.config_step_line_ids
         if not cfg_step_lines:
@@ -1021,10 +1161,12 @@ class ProductConfigurator(models.TransientModel):
             self.config_session_id.unlink()
         except Exception:
             session = self.env["product.config.step"]
-        action = session_product_tmpl_id.with_context({}).create_config_wizard(
-            click_next=False
-        )
-        return action
+        if session_product_tmpl_id:
+            action = session_product_tmpl_id.with_context(
+                **dict(self.env.context)
+            ).create_config_wizard(model_name=self._name, click_next=False)
+            return action
+        return False
 
     def get_wizard_action(self, view_cache=False, wizard=None):
         """Return action of wizard
@@ -1037,11 +1179,13 @@ class ProductConfigurator(models.TransientModel):
             {
                 "view_cache": view_cache,
                 "differentiator": ctx.get("differentiator", 1) + 1,
+                "is_product_configurator": True,
+                "is_action_previous": False,
+                "is_preset": self.product_preset_id and True or False,
             }
         )
         if wizard:
             ctx.update({"wizard_id": wizard.id, "wizard_id_view_ref": wizard.id})
-
         wizard_action = {
             "type": "ir.actions.act_window",
             "res_model": self._name,
@@ -1058,6 +1202,8 @@ class ProductConfigurator(models.TransientModel):
         }
         if wizard:
             wizard_action.update({"res_id": wizard.id})
+        if self and not self.state:
+            self.state = "select"
         return wizard_action
 
     def open_step(self, step):
