@@ -341,7 +341,7 @@ class ProductConfigSession(models.Model):
     def _compute_cfg_price(self):
         for session in self:
             if session.product_tmpl_id:
-                price = session.get_cfg_price()
+                price = session.with_company(session.company_id).get_cfg_price()
             else:
                 price = 0.00
             session.price = price
@@ -495,6 +495,9 @@ class ProductConfigSession(models.Model):
         domain="[('product_tmpl_id', '=', product_tmpl_id),\
             ('config_preset_ok', '=', True)]",
     )
+    company_id = fields.Many2one(
+        "res.company", string="Company", default=lambda self: self.env.company
+    )
 
     def action_confirm(self, product_id=None):
         for session in self:
@@ -536,7 +539,6 @@ class ProductConfigSession(models.Model):
             attr_id = attr_line.attribute_id.id
             field_name = field_prefix + str(attr_id)
             custom_field_name = custom_field_prefix + str(attr_id)
-
             if field_name not in vals and custom_field_name not in vals:
                 continue
 
@@ -548,12 +550,22 @@ class ProductConfigSession(models.Model):
                     if not vals[field_name]:
                         field_val = None
                     else:
-                        field_val = []
+                        value_ids = self.value_ids.filtered(
+                            lambda value: value.attribute_id.id
+                            == attr_line.attribute_id.id
+                        )
+                        field_val = value_ids and value_ids.ids or []
                         for field_vals in vals[field_name]:
-                            if field_vals[0] == 6:
+                            if field_vals and field_vals[0] == 6:
                                 field_val += field_vals[2] or []
-                            elif field_vals[0] == 4:
+                            elif field_vals and field_vals[0] == 4:
                                 field_val.append(field_vals[1])
+                            elif (
+                                field_vals
+                                and field_vals[0] == 3
+                                and field_vals[1] in field_val
+                            ):
+                                field_val.remove(field_vals[1])
                         # field_val = [
                         #     i[1] for i in vals[field_name] if vals[field_name][0]
                         # ] or vals[field_name][0][1]
@@ -685,7 +697,7 @@ class ProductConfigSession(models.Model):
         try:
             self.validate_configuration(final=False)
         except ValidationError as exc:
-            raise ValidationError(_("%s") % exc.name) from exc
+            raise ValidationError(_(f"{exc}"))
         except Exception as exc:
             raise ValidationError(_("Invalid Configuration")) from exc
         return res
@@ -821,20 +833,25 @@ class ProductConfigSession(models.Model):
         return prices
 
     @api.model
-    def get_cfg_price(self, value_ids=None, custom_vals=None):
+    def get_cfg_price(self, value_ids=[], custom_vals=None):
         """Computes the price of the configured product based on the
             configuration passed in via value_ids and custom_values
 
         :param value_ids: list of attribute value_ids
         :param custom_vals: dictionary of custom attribute values
         :returns: final configuration price"""
-
-        if value_ids is None:
+        if not value_ids:
             value_ids = self.value_ids.ids
 
         if custom_vals is None:
             custom_vals = {}
-
+        value_ids = value_ids + self.value_ids.ids
+        if self.env.context.get("tobe_remove_attr", []):
+            value_ids = self.flatten_val_ids(value_ids)
+            value_ids = set(value_ids) - set(
+                self.env.context.get("tobe_remove_attr", [])
+            )
+            value_ids = list(value_ids)
         product_tmpl = self.product_tmpl_id
         self = self.with_context(active_id=product_tmpl.id)
 
@@ -927,6 +944,7 @@ class ProductConfigSession(models.Model):
             ("product_tmpl_id", "=", product_tmpl_id),
             ("user_id", "=", self.env.uid),
             ("state", "=", state),
+            ("company_id", "=", self.env.company.id),
         ]
         if parent_id:
             domain.append(("parent_id", "=", parent_id))
@@ -1481,16 +1499,14 @@ class ProductConfigSession(models.Model):
         :param value_ids: list of value ids or mix of ids and list of ids
                            (e.g: [1, 2, 3, [4, 5, 6]])
         :returns: flattened list of ids ([1, 2, 3, 4, 5, 6])"""
-        flat_val_ids = set()
-        if value_ids and value_ids[0]:
-            for val in value_ids:
-                if not val:
-                    continue
-                if isinstance(val, list):
-                    flat_val_ids.add(val[1])
-                elif isinstance(val, int):
-                    flat_val_ids.add(val)
-        return list(flat_val_ids)
+        flatList = []
+        for value in value_ids:
+            if isinstance(value, list):
+                for sub in value:
+                    flatList.append(sub)
+            else:
+                flatList.append(value)
+        return flatList
 
     def formatPrices(self, prices=None, dp="Product Price"):
         if prices is None:
@@ -1546,13 +1562,16 @@ class ProductConfigSession(models.Model):
         intead of view in that field"""
         model_obj = self.env[model]
         specs = model_obj._onchange_spec()
-        for name, field in model_obj._fields.items():
-            if field.type not in ["one2many", "many2many"]:
-                continue
-            ch_specs = self.get_child_specification(
-                model=field.comodel_name, parent=name
-            )
-            specs.update(ch_specs)
+
+        # TODO :- Commented a code and ths code already base in a odoo base modules.
+        # for name, field in model_obj._fields.items():
+        #     if field.type not in ["one2many", "many2many"]:
+        #         continue
+        #     ch_specs = self.get_child_specification(
+        #         model=field.comodel_name, parent=name
+        #     )
+        #     specs.update(ch_specs)
+
         return specs
 
     @api.model

@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 from io import StringIO
 
 from mako.runtime import Context
@@ -255,8 +256,10 @@ class ProductTemplate(models.Model):
     def configure_product(self):
         """launches a product configurator wizard with a linked
         template in order to configure new product."""
-        return self.with_context(product_tmpl_id_readonly=True).create_config_wizard(
-            click_next=False
+        return (
+            self.with_context(product_tmpl_id_readonly=True)
+            .with_company(self.env.company)
+            .create_config_wizard(click_next=False)
         )
 
     def create_config_wizard(
@@ -333,8 +336,45 @@ class ProductTemplate(models.Model):
         configurable_templates = self.filtered(lambda template: template.config_ok)
         if change_config_ok or configurable_templates:
             self[:1].check_config_user_access()
-
-        return super().write(vals)
+        res = super().write(vals)
+        if "config_step_line_ids" in vals:
+            miss_attrs = list(
+                set(self.attribute_line_ids.ids)
+                - set(self.config_step_line_ids.attribute_line_ids.ids)
+            )
+            if miss_attrs and self.config_step_line_ids:
+                attrs = [
+                    x.attribute_id.name
+                    for x in self.env["product.template.attribute.line"].browse(
+                        miss_attrs
+                    )
+                ]
+                raise ValidationError(
+                    _(
+                        "The following attributes are missing from Configuration Steps: %s",
+                        (",".join(attrs)),
+                    )
+                )
+            couter = []
+            for config_step in self.config_step_line_ids:
+                couter.extend(config_step.attribute_line_ids.ids)
+            counter = Counter(couter)
+            duplicates = []
+            for k, v in dict(counter).items():
+                if v > 1:
+                    duplicates.append(k)
+            if duplicates:
+                duplicates = self.env["product.template.attribute.line"].browse(
+                    duplicates
+                )
+                duplicates = ",".join(duplicates.mapped("attribute_id.name"))
+                raise ValidationError(
+                    _(
+                        "The following attributes have duplicates in Configuration Steps: %s",
+                        (duplicates),
+                    )
+                )
+        return res
 
     @api.constrains("config_line_ids")
     def _check_config_line_domain(self):
