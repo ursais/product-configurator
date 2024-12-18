@@ -15,6 +15,8 @@ from odoo.addons.base.models.ir_model import FIELD_TYPES
 #     transfer_node_to_modifiers,
 # )
 
+import logging
+_logger = logging.getLogger(__name__)
 
 class Base(models.AbstractModel):
     _inherit = "base"
@@ -354,21 +356,27 @@ class ProductConfigurator(models.TransientModel):
         - original onchage return M2o values in formate
         (attr-value.id, attr-value.name) but on website
         we need only attr-value.id"""
+        _logger.info("BCB ============ apply_onchange_values")
         product_tmpl_id = self.env["product.template"].browse(
             values.get("product_tmpl_id", [])
         )
         if not product_tmpl_id:
             product_tmpl_id = self.product_tmpl_id
 
+        _logger.info("BCB == apply_onchange_values == product_tmpl_id: %s", product_tmpl_id)
         config_session_id = self.env["product.config.session"].browse(
             values.get("config_session_id", [])
         )
         if not config_session_id:
             config_session_id = self.config_session_id
-
+         
+        _logger.info("BCB == apply_onchange_values == config_session_id: %s", config_session_id)
+        
         state = values.get("state", False)
         if not state:
             state = self.state
+
+        _logger.info("BCB == apply_onchange_values == state: %s", state)
 
         cfg_vals = self.env["product.attribute.value"]
         config_line_ids = product_tmpl_id.config_line_ids
@@ -379,6 +387,10 @@ class ProductConfigurator(models.TransientModel):
         #     )
         if not cfg_vals:
             cfg_vals = self.value_ids
+
+        _logger.info("BCB == apply_onchange_values == cfg_vals: %s", cfg_vals)
+        _logger.info("BCB == apply_onchange_values == config_line_ids: %s", config_line_ids)
+
 
         field_type = type(field_name)
         field_prefix = self._prefixes.get("field_prefix")
@@ -391,6 +403,11 @@ class ProductConfigurator(models.TransientModel):
             values = self._remove_dynamic_fields(values)
             res = super().onchange(values, field_name, field_onchange)
             return res
+        _logger.info("BCB == apply_onchange_values == field_type: %s", field_type)
+        _logger.info("BCB == apply_onchange_values == field_prefix: %s", field_prefix)
+        _logger.info("BCB == apply_onchange_values == custom_field_prefix: %s", custom_field_prefix)
+        _logger.info("BCB == apply_onchange_values == local_field_name: %s", local_field_name)
+        _logger.info("BCB == apply_onchange_values == local_custom_field: %s", local_custom_field)
 
         view_val_ids = set()
         view_attribute_ids = set()
@@ -400,57 +417,79 @@ class ProductConfigurator(models.TransientModel):
             cfg_step = product_tmpl_id.config_step_line_ids.filtered(
                 lambda x: x.id == cfg_step_id
             )
+            _logger.info("BCB == apply_onchange_values == cfg_step_id: %s", cfg_step_id)
+            _logger.info("BCB == apply_onchange_values == cfg_step: %s", cfg_step)
         except Exception:
             cfg_step = self.env["product.config.step.line"]
 
         dynamic_fields = {k: v for k, v in values.items() if k.startswith(field_prefix)}
+        _logger.info("BCB == apply_onchange_values == dynamic_fields: %s", dynamic_fields)
+        _logger.info("BCB == apply_onchange_values == dynamic_fields.items(): %s", dynamic_fields.items())
         # Get the unstored values from the client view
         for k, v in dynamic_fields.items():
             attr_id = int(k.split(field_prefix)[1])
             valve_ids = self.env["product.attribute.value"]
+            _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == attr_id: %s", k, v, attr_id)
             if isinstance(v, list):
                 for att in v:
                     valve_ids |= product_tmpl_id.config_line_ids.filtered(
                         lambda line: int(att[1])
                         in line.domain_id.domain_line_ids.value_ids.ids
                     ).mapped("value_ids")
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == IF valve_ids: %s", k, v, valve_ids)
             else:
                 valve_ids = product_tmpl_id.config_line_ids.filtered(
                     lambda line: int(v) in line.domain_id.domain_line_ids.value_ids.ids
                 ).mapped("value_ids")
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == ELSE valve_ids: %s", k, v, valve_ids)
                 dyn_restricted_attrs_dicts = (
                     self.dyn_restricted_attrs_dicts
                     and json.loads(self.dyn_restricted_attrs_dicts)
                     or {}
                 )
-                field_name = field_prefix + str(valve_ids.mapped("attribute_id").id)
-                if attr_id and valve_ids.filtered(
-                    lambda value: value.attribute_id.id != attr_id
-                ):
-                    if field_name in dyn_restricted_attrs_dicts:
-                        dyn_restricted_attrs_dicts[field_name] = valve_ids.ids
-                    else:
-                        dyn_restricted_attrs_dicts.update({field_name: valve_ids.ids})
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == dyn_restricted_attrs_dicts: %s", k, v, dyn_restricted_attrs_dicts)
+                field_names = []
+                for val in valve_ids:
+                    field_names.append(field_prefix + str(val.attribute_id.id))
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == IF field_name: %s", k, v, field_name)
+                for field_name in field_names:
+                    if attr_id and valve_ids.filtered(
+                        lambda value: value.attribute_id.id != attr_id
+                    ):
+                        if field_name in dyn_restricted_attrs_dicts:
+                            dyn_restricted_attrs_dicts[field_name] = valve_ids.ids
+                            _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == IF IF dyn_restricted_attrs_dicts: %s", k, v, dyn_restricted_attrs_dicts)
+                        else:
+                            dyn_restricted_attrs_dicts.update({field_name: valve_ids.ids})
+                            _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == IF ELSE dyn_restricted_attrs_dicts: %s", k, v, dyn_restricted_attrs_dicts)
                 self.dyn_restricted_attrs_dicts = json.dumps(dyn_restricted_attrs_dicts)
+
             is_custom = self.product_tmpl_id.attribute_line_ids.filtered(
-                lambda l: l.attribute_id.id == valve_ids.mapped("attribute_id").id
+                lambda l: l.attribute_id.id in valve_ids.mapped("attribute_id").ids
                 and l.custom
             )
+            _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == is_custom: %s", k, v, is_custom)
             non_custom = self.product_tmpl_id.attribute_line_ids - is_custom
+            _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == non_custom: %s", k, v, non_custom)
             self.domain_attr_2_ids = [(6, 0, valve_ids.ids)]
-            if valve_ids.mapped("attribute_id").id in is_custom.ids:
-                self.dyn_field_2_value = custom_field_prefix + str(
-                    valve_ids.mapped("attribute_id").id
-                )
-            if valve_ids.mapped("attribute_id").id in non_custom.ids:
-                self.dyn_field_2_value = field_prefix + str(
-                    valve_ids.mapped("attribute_id").id
-                )
+            for val in valve_ids:
+                if val.attribute_id.id in is_custom.mapped("id"):
+                    self.dyn_field_2_value.append(custom_field_prefix + str(
+                        val.attribute_id.id
+                    ) + ", ")
+                    _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == IS CUSTOM self.dyn_field_2_value: %s", k, v, self.dyn_field_2_value)
+                if val.attribute_id.id in non_custom.mapped("id"):
+                    self.dyn_field_2_value.append(field_prefix + str(
+                        val.attribute_id.id
+                    ) + ", ")
+                    _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == NON CUSTOM self.dyn_field_2_value: %s", k, v, self.dyn_field_2_value)
 
             line_attributes = cfg_step.attribute_line_ids.mapped("attribute_id")
+            _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == line_attributes: %s", k, v, line_attributes)
 
             if not cfg_step or attr_id in line_attributes.ids:
                 view_attribute_ids.add(attr_id)
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == ((if not cfg_step or attr_id in line_attributes.ids)) view_attribute_ids: %s", k, v, view_attribute_ids)
             else:
                 continue
             if not v:
@@ -458,8 +497,10 @@ class ProductConfigurator(models.TransientModel):
             if isinstance(v, list):
                 for a in v:
                     view_val_ids.add(a[1])
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == isinstance(v, list) || view_val_ids: %s", k, v, view_val_ids)
             elif isinstance(v, int):
                 view_val_ids.add(v)
+                _logger.info("BCB == apply_onchange_values loop == k: %s , v: %s == isinstance(v, int) || view_val_ids: %s", k, v, view_val_ids)
 
         # Clear all DB values belonging to attributes changed in the wizard
         cfg_vals = cfg_vals.filtered(
