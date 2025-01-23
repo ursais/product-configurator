@@ -365,7 +365,7 @@ class ProductConfigurator(models.TransientModel):
         )
         if not config_session_id:
             config_session_id = self.config_session_id
-
+         
         state = values.get("state", False)
         if not state:
             state = self.state
@@ -423,29 +423,35 @@ class ProductConfigurator(models.TransientModel):
                     and json.loads(self.dyn_restricted_attrs_dicts)
                     or {}
                 )
-                field_name = field_prefix + str(valve_ids.mapped("attribute_id").id)
-                if attr_id and valve_ids.filtered(
-                    lambda value: value.attribute_id.id != attr_id
-                ):
-                    if field_name in dyn_restricted_attrs_dicts:
-                        dyn_restricted_attrs_dicts[field_name] = valve_ids.ids
-                    else:
-                        dyn_restricted_attrs_dicts.update({field_name: valve_ids.ids})
+                field_names = []
+                for val in valve_ids:
+                    field_names.append(field_prefix + str(val.attribute_id.id))
+                for field_name in field_names:
+                    if attr_id and valve_ids.filtered(
+                        lambda value: value.attribute_id.id != attr_id
+                    ):
+                        if field_name in dyn_restricted_attrs_dicts:
+                            dyn_restricted_attrs_dicts[field_name] = valve_ids.ids
+                        else:
+                            dyn_restricted_attrs_dicts.update({field_name: valve_ids.ids})
                 self.dyn_restricted_attrs_dicts = json.dumps(dyn_restricted_attrs_dicts)
+
             is_custom = self.product_tmpl_id.attribute_line_ids.filtered(
-                lambda l: l.attribute_id.id == valve_ids.mapped("attribute_id").id
+                lambda l: l.attribute_id.id in valve_ids.mapped("attribute_id").ids
                 and l.custom
             )
             non_custom = self.product_tmpl_id.attribute_line_ids - is_custom
             self.domain_attr_2_ids = [(6, 0, valve_ids.ids)]
-            if valve_ids.mapped("attribute_id").id in is_custom.ids:
-                self.dyn_field_2_value = custom_field_prefix + str(
-                    valve_ids.mapped("attribute_id").id
-                )
-            if valve_ids.mapped("attribute_id").id in non_custom.ids:
-                self.dyn_field_2_value = field_prefix + str(
-                    valve_ids.mapped("attribute_id").id
-                )
+            for val in valve_ids:
+                # TODO !!! rework this to mot use strings, there is probably a better way
+                if val.attribute_id.id in is_custom.mapped("id"):
+                    self.dyn_field_2_value.append(custom_field_prefix + str(
+                        val.attribute_id.id
+                    ) + ", ")
+                if val.attribute_id.id in non_custom.mapped("id"):
+                    self.dyn_field_2_value.append(field_prefix + str(
+                        val.attribute_id.id
+                    ) + ", ")
 
             line_attributes = cfg_step.attribute_line_ids.mapped("attribute_id")
 
