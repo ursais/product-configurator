@@ -61,8 +61,12 @@ class ProductConfiguratorMrp(models.TransientModel):
         """Hook to allow custom line values to be put on the newly
         created or edited lines."""
         product = self.env["product.product"].browse(product_id)
-        bom = self.config_session_id.sudo().with_company(self.env.user.company_id).create_get_bom(
-            variant=product,
+        bom = (
+            self.config_session_id.sudo()
+            .with_company(self.env.user.company_id)
+            .create_get_bom(
+                variant=product,
+            )
         )
         line_vals = {
             "bom_id": bom.id,
@@ -78,7 +82,7 @@ class ProductConfiguratorMrp(models.TransientModel):
             return res
         model_name = "mrp.production"
         line_vals = self._get_order_vals(res["res_id"])
-        mrpProduction = self.env[model_name]
+        self.env[model_name]
         cfg_session = self.config_session_id
         specs = cfg_session.get_onchange_specifications(model=model_name)
         # updates = mrpProduction.onchange(line_vals, ["bom_id"], specs)

@@ -310,7 +310,9 @@ class ProductConfigurator(models.TransientModel):
                                     valve_ids = product_tmpl_id.config_line_ids.filtered(
                                         lambda line: int(local_attrb_value.id)
                                         in line.domain_id.domain_line_ids.value_ids.ids
-                                    ).mapped("value_ids")
+                                    ).mapped(
+                                        "value_ids"
+                                    )
                                     local_attrb_value = session_attrb_values.filtered(
                                         lambda lk: lk.id in valve_ids.ids
                                     )
@@ -371,7 +373,7 @@ class ProductConfigurator(models.TransientModel):
             state = self.state
 
         cfg_vals = self.env["product.attribute.value"]
-        config_line_ids = product_tmpl_id.config_line_ids
+        product_tmpl_id.config_line_ids
         # TODO: VP Need to Check
         # if values.get("value_ids", []):
         #     cfg_vals = self.env["product.attribute.value"].browse(
@@ -1166,7 +1168,7 @@ class ProductConfigurator(models.TransientModel):
             session_product_tmpl_id = self.config_session_id.product_tmpl_id
             self.config_session_id.unlink()
         except Exception:
-            session = self.env["product.config.step"]
+            self.env["product.config.step"]
         if session_product_tmpl_id:
             action = session_product_tmpl_id.with_context(
                 **dict(self.env.context)
