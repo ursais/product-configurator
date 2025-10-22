@@ -12,5 +12,10 @@ class ProductConfiguratorSale(models.TransientModel):
         vals = super(ProductConfiguratorSale, self)._get_order_line_vals(
             product_id=product_id
         )
-        bom = self.env["mrp.bom"].sudo().with_company(self.env.user.company_id).search([("product_id", "=", product_id)], limit=1)
+        bom = (
+            self.env["mrp.bom"]
+            .sudo()
+            .with_company(self.env.user.company_id)
+            .search([("product_id", "=", product_id)], limit=1)
+        )
         return vals

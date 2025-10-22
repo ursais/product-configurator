@@ -1,9 +1,12 @@
 # Copyright (C) 2021 Open Source Integrators
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from odoo import models
 import logging
+
+from odoo import models
+
 _logger = logging.getLogger(__name__)
+
 
 class ProductConfigSession(models.Model):
     _inherit = "product.config.session"
@@ -30,22 +33,32 @@ class ProductConfigSession(models.Model):
         attr_values = variant.product_template_attribute_value_ids.mapped(
             "product_attribute_value_id"
         )
-        existing_bom = self.env["mrp.bom"].sudo().with_company(self.env.user.company_id).search(
-            [
-                ("product_tmpl_id", "=", product_tmpl_id.id),
-                ("product_id", "=", variant.id),
-            ]
+        existing_bom = (
+            self.env["mrp.bom"]
+            .sudo()
+            .with_company(self.env.user.company_id)
+            .search(
+                [
+                    ("product_tmpl_id", "=", product_tmpl_id.id),
+                    ("product_id", "=", variant.id),
+                ]
+            )
         )
         if existing_bom:
             return existing_bom[:1]
 
-        parent_bom = self.env["mrp.bom"].sudo().with_company(self.env.user.company_id).search(
-            [
-                ("product_tmpl_id", "=", product_tmpl_id.id),
-                ("product_id", "=", False),
-            ],
-            order="sequence asc",
-            limit=1,
+        parent_bom = (
+            self.env["mrp.bom"]
+            .sudo()
+            .with_company(self.env.user.company_id)
+            .search(
+                [
+                    ("product_tmpl_id", "=", product_tmpl_id.id),
+                    ("product_id", "=", False),
+                ],
+                order="sequence asc",
+                limit=1,
+            )
         )
         bom_lines = []
         if not parent_bom:
@@ -143,5 +156,7 @@ class ProductConfigSession(models.Model):
         variant = super().create_get_variant(
             value_ids=value_ids, custom_vals=custom_vals
         )
-        self.sudo().with_company(self.env.user.company_id).create_get_bom(variant=variant, product_tmpl_id=self.product_tmpl_id)
+        self.sudo().with_company(self.env.user.company_id).create_get_bom(
+            variant=variant, product_tmpl_id=self.product_tmpl_id
+        )
         return variant
